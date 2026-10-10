@@ -1,0 +1,54 @@
+# Default values for Conveyor Helm Chart
+namespace: ""
+nameOverride: ""
+
+# Storage configuration
+storageClass: "standard"
+pvc: 
+  size: "16Gi"
+
+# Ingress configuration
+ingress:
+  enabled: false
+
+# the container image
+image: 
+  repository: ghcr.io/open-ug/conveyor
+  tag: latest
+  pullPolicy: IfNotPresent 
+
+# service configuration
+service: 
+  type: NodePort 
+  nodePort: 30080
+  ports: 
+    http: 8080
+    nats: 4222
+
+# config override
+config:
+  override:
+    enabled: false
+    existingSecret: ""
+    file: "conveyor.yml" 
+
+# certificates override
+certificates:
+  override:
+    enabled: false
+    existingSecret: ""
+    ca: "ca.pem"
+    cert: "server.crt"
+    key: "server.key"
+
+# runs as root (as required)
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+
+# placeholders for scheduling (a good practice)
+resources: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []

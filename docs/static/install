@@ -1,0 +1,152 @@
+#!/bin/sh
+
+# Conveyor Installation Script
+# POSIX-compliant shell script for installing Conveyor from GitHub releases
+
+set -e
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Helper functions
+log_info() {
+    printf "${BLUE}[INFO]${NC} %s\n" "$1"
+}
+
+log_success() {
+    printf "${GREEN}[SUCCESS]${NC} %s\n" "$1"
+}
+
+log_warning() {
+    printf "${YELLOW}[WARNING]${NC} %s\n" "$1"
+}
+
+log_error() {
+    printf "${RED}[ERROR]${NC} %s\n" "$1"
+}
+
+# Check if running as root for installation
+if [ "$(id -u)" -ne 0 ]; then
+    log_error "This script must be run as root or with sudo"
+    exit 1
+fi
+
+log_info "Starting Conveyor installation..."
+
+# Detect system architecture
+log_info "Detecting system architecture..."
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)
+        ARCH="amd64"
+        ;;
+    aarch64|arm64)
+        ARCH="arm64"
+        ;;
+    *)
+        log_error "Unsupported architecture: $ARCH"
+        log_error "Supported architectures: amd64, arm64"
+        exit 1
+        ;;
+esac
+log_success "Detected architecture: $ARCH"
+
+# Get latest release tag from GitHub
+log_info "Fetching latest release information from GitHub..."
+REPO="open-ug/conveyor"
+API_URL="https://api.github.com/repos/$REPO/releases/latest"
+
+LATEST_RELEASE=$(curl -s "$API_URL")
+if [ $? -ne 0 ]; then
+    log_error "Failed to fetch release information from GitHub"
+    exit 1
+fi
+
+LATEST_TAG=$(printf '%s' "$LATEST_RELEASE" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
+
+if [ -z "$LATEST_TAG" ]; then
+    log_error "Failed to parse latest release tag"
+    exit 1
+fi
+
+log_success "Latest release: $LATEST_TAG"
+
+# Construct binary and service file names
+BINARY_NAME="conveyor-${LATEST_TAG}-linux-${ARCH}"
+SERVICE_NAME="conveyor.service"
+
+# Download binary
+log_info "Downloading Conveyor binary: $BINARY_NAME..."
+BINARY_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$BINARY_NAME"
+TEMP_BINARY="/tmp/$BINARY_NAME"
+
+curl -L -o "$TEMP_BINARY" "$BINARY_URL"
+if [ $? -ne 0 ]; then
+    log_error "Failed to download binary from $BINARY_URL"
+    exit 1
+fi
+log_success "Binary downloaded successfully"
+
+# Install binary
+log_info "Installing binary to /usr/local/bin/conveyor..."
+chmod +x "$TEMP_BINARY"
+mv "$TEMP_BINARY" /usr/local/bin/conveyor
+log_success "Binary installed to /usr/local/bin/conveyor"
+
+# Download service file
+log_info "Downloading systemd service file: $SERVICE_NAME..."
+SERVICE_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$SERVICE_NAME"
+TEMP_SERVICE="/tmp/$SERVICE_NAME"
+
+curl -L -o "$TEMP_SERVICE" "$SERVICE_URL"
+if [ $? -ne 0 ]; then
+    log_error "Failed to download service file from $SERVICE_URL"
+    exit 1
+fi
+log_success "Service file downloaded successfully"
+
+# Install service file
+log_info "Installing service file to /etc/systemd/system/conveyor.service..."
+mv "$TEMP_SERVICE" /etc/systemd/system/conveyor.service
+log_success "Service file installed"
+
+# Reload systemd daemon
+log_info "Reloading systemd daemon..."
+systemctl daemon-reload
+if [ $? -ne 0 ]; then
+    log_error "Failed to reload systemd daemon"
+    exit 1
+fi
+log_success "Systemd daemon reloaded"
+
+# Enable service
+log_info "Enabling conveyor service..."
+systemctl enable conveyor
+if [ $? -ne 0 ]; then
+    log_error "Failed to enable conveyor service"
+    exit 1
+fi
+log_success "Conveyor service enabled"
+
+# Print success message and next steps
+echo ""
+log_success "Conveyor installation completed successfully!"
+echo ""
+printf "${GREEN}═══════════════════════════════════════════════════════════${NC}\n"
+printf "${YELLOW}                    NEXT STEPS${NC}\n"
+printf "${GREEN}═══════════════════════════════════════════════════════════${NC}\n"
+echo ""
+printf "  ${BLUE}1.${NC} Initialize Conveyor configuration:\n"
+printf "     ${GREEN}conveyor init${NC}\n"
+echo ""
+printf "  ${BLUE}2.${NC} Start the Conveyor service:\n"
+printf "     ${GREEN}sudo systemctl start conveyor${NC}\n"
+echo ""
+printf "${GREEN}═══════════════════════════════════════════════════════════${NC}\n"
+echo ""
+log_info "You can check the service status with: ${GREEN}sudo systemctl status conveyor${NC}"
+echo ""

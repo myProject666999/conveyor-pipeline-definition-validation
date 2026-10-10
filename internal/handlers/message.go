@@ -1,0 +1,82 @@
+package handlers
+
+import (
+	"encoding/json"
+
+	"github.com/dgraph-io/badger/v4"
+	"github.com/gofiber/fiber/v2"
+	"github.com/nats-io/nats.go"
+	models "github.com/open-ug/conveyor/internal/models"
+	"github.com/open-ug/conveyor/internal/utils"
+	craneTypes "github.com/open-ug/conveyor/pkg/types"
+)
+
+/*
+`MessageHandler` is a struct that holds the models for the message handler
+*/
+type MessageHandler struct {
+	MessageModel models.DriverMessageModel
+	NatsCon      *nats.Conn
+}
+
+// NewMessageHandler creates a new message handler
+func NewMessageHandler(natsCon *nats.Conn, db *badger.DB) *MessageHandler {
+	return &MessageHandler{
+		MessageModel: models.DriverMessageModel{
+			DB:     db,
+			Prefix: "driver-messages/",
+		},
+		NatsCon: natsCon,
+	}
+}
+
+// PublishMessage creates a new message and broadcasts it to drivers
+// @Summary Publish a message
+// @Description Create a new message and broadcast it to drivers via NATS
+// @Tags drivers
+// @Accept json
+// @Produce json
+// @Param message body craneTypes.DriverMessage true "Driver message object"
+// @Success 200 {object} map[string]interface{} "Message published successfully"
+// @Failure 400 {object} map[string]interface{} "Bad request - Invalid payload"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /drivers/broadcast-message [post]
+func (h *MessageHandler) PublishMessage(c *fiber.Ctx) error {
+	var message craneTypes.DriverMessage
+	if err := c.BodyParser(&message); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "could not parse request body",
+		})
+	}
+	mid, err := utils.GenerateRandomID()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	message.ID = mid
+	err = h.MessageModel.Insert(message)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	jsonMsg, merr := json.Marshal(message)
+	if merr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": merr.Error(),
+		})
+	}
+	// Publish to nats channel for driver to work on it
+	errf := h.NatsCon.Publish("application",
+		jsonMsg,
+	)
+	if errf != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": errf.Error(),
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "message published",
+	})
+}
