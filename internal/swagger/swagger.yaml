@@ -60,8 +60,9 @@ definitions:
       id:
         type: string
       metadata:
-        additionalProperties:
-          type: string
+        additionalProperties: true
+        description: Metadata can include any additional information about the resource,
+          such as labels, annotations, or other custom fields.
         type: object
       name:
         type: string
@@ -104,7 +105,7 @@ info:
     name: Apache 2.0
     url: https://opensource.org/license/apache-2-0
   title: Conveyor CI API
-  version: 0.5.0
+  version: 0.6.5
 paths:
   /drivers/broadcast-message:
     post:
@@ -317,7 +318,17 @@ paths:
           schema:
             $ref: '#/definitions/types.Pipeline'
         "400":
-          description: Bad request - Invalid payload
+          description: Bad request - Invalid payload or definition
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Resource definition not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Pipeline with this name already exists
           schema:
             additionalProperties: true
             type: object
@@ -347,6 +358,11 @@ paths:
           description: Pipeline deleted successfully
         "404":
           description: Not found - Pipeline does not exist
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Resources still reference this pipeline
           schema:
             additionalProperties: true
             type: object
@@ -391,7 +407,8 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update an existing pipeline with new configuration
+      description: Update an existing pipeline with new configuration. The resource
+        type is immutable while resources reference the pipeline.
       parameters:
       - description: Pipeline name
         in: path
@@ -412,12 +429,17 @@ paths:
           schema:
             $ref: '#/definitions/types.Pipeline'
         "400":
-          description: Bad request - Invalid payload
+          description: Bad request - Invalid payload or definition
           schema:
             additionalProperties: true
             type: object
         "404":
-          description: Not found - Pipeline does not exist
+          description: Not found - Pipeline or resource definition does not exist
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Resource type cannot change while resources reference the pipeline
           schema:
             additionalProperties: true
             type: object
@@ -680,8 +702,13 @@ paths:
       produces:
       - application/json
       responses:
+        "202":
+          description: Pipeline deletion accepted; poll GET until 404
+          schema:
+            additionalProperties: true
+            type: object
         "204":
-          description: Resource deleted successfully
+          description: Direct resource deleted
           schema:
             type: string
         "400":
@@ -689,6 +716,10 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "404":
+          description: Resource already absent
+          schema:
+            type: string
         "500":
           description: Internal server error
           schema:

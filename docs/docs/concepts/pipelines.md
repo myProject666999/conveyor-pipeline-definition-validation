@@ -83,3 +83,79 @@ You can then save this pipeline to the Conveyor API server and when you create a
 ```
 
 Once you send the resource to the API server. Conveyor CI will follow the order you specified in the pipeline to send events to the drivers to trigger the `Recocile` function.
+
+## Validation rules
+
+A pipeline definition is validated when it is created (`POST /pipelines`) or updated (`PUT /pipelines/{name}`). Validation returns **all** problems at once, each identified by its field path, so a definition can be fixed in a single round trip.
+
+| Field | Rule |
+| --- | --- |
+| `name` | Required. Only lowercase letters, digits and hyphens (`[a-z0-9-]+`). |
+| `steps` | At least one step. |
+| `steps[i].id` | Required and unique within the pipeline. |
+| `steps[i].driver` | Required. Must not contain `.`, `*`, `>` or whitespace. |
+
+The same driver may appear in more than one step. This is a supported pattern: for example a `status` driver often reports progress both in the middle and at the end of a pipeline.
+
+### Why the driver charset is restricted
+
+A driver name is embedded directly in a NATS subject:
+
+```
+drivers.<driver>.resources.<resource-type>
+```
+
+`.` separates subject tokens, `*` matches one token and `>` matches the rest. A dot in a driver name would therefore silently route the message to a different subject, and wildcards could broadcast it to unintended drivers. Whitespace is rejected because it is never valid in a subject token.
+
+### Why the name charset is strict
+
+The name is part of the storage key (`/pipelines/<name>`) and of the request path. Restricting it to lowercase letters, digits and hyphens keeps both unambiguous. This is a deliberate tightening: names that were accepted before may now be rejected on write. Existing definitions are **not** migrated at startup — they can still be read, executed and deleted as before. A non-conforming pipeline only has to pass validation if it is written again.
+
+## HTTP semantics
+
+| Request | Result |
+| --- | --- |
+| `POST /pipelines` with an existing name | `409 Conflict` — pipelines are never silently overwritten. |
+| `POST /pipelines` with an unknown `resource` | `404 Not Found`. |
+| `PUT /pipelines/{name}` for a missing pipeline | `404 Not Found` — `PUT` does not create. |
+| `PUT /pipelines/{name}` that changes `resource` while resources reference it | `409 Conflict`, listing up to ten affected resource names. |
+| `DELETE /pipelines/{name}` while resources reference it | `409 Conflict`, listing up to ten affected resource names. |
+
+Validation errors use `400 Bad Request` and return both fields below. Older clients can keep reading `error`; it always contains the first issue.
+
+```json
+{
+  "error": "steps[2].id: duplicate of steps[1].id (\"2\")",
+  "errors": [
+    "steps[2].id: duplicate of steps[1].id (\"2\")",
+    "steps[2].driver: must not contain '.', '*', '>' or whitespace"
+  ]
+}
+```
+
+Conflict responses additionally include `resources` (up to ten names) and the exact `resource_count`:
+
+```json
+{
+  "error": "Pipeline gitops is still referenced by 2 resource(s)",
+  "resources": ["app-1", "app-2"],
+  "resource_count": 2
+}
+```
+
+### Changing the steps of a live pipeline
+
+`resource` is immutable while resources reference the pipeline, because resources are indexed by their type and changing it would strand existing runs. Step `id`s and their order, however, are **not** blocked: refusing them would prevent routine edits. Because an in-flight run remembers its current step by `id`, changing the steps can leave a running resource unable to match its next result. The update therefore succeeds and reports how many resources could be affected:
+
+```json
+{
+  "name": "gitops",
+  "resource": "gitop",
+  "steps": ["..."],
+  "affected_resources": 2,
+  "warning": "Steps changed while 2 resource(s) use this pipeline; runs in progress may not match their next step"
+}
+```
+
+If you need to guarantee that no run is disturbed, wait until `affected_resources` is `0` (or no resources reference the pipeline) before making structural changes.
+

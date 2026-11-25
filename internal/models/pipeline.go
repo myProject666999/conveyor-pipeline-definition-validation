@@ -2,10 +2,21 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/open-ug/conveyor/pkg/types"
+)
+
+var (
+	// ErrPipelineExists is returned when a pipeline is created under a name
+	// that is already in use. Pipelines are never silently overwritten.
+	ErrPipelineExists = errors.New("pipeline already exists")
+	// ErrPipelineNotFound is returned for reads, updates and deletes of a
+	// pipeline that does not exist. It wraps badger.ErrKeyNotFound so callers
+	// can use either sentinel with errors.Is.
+	ErrPipelineNotFound = fmt.Errorf("pipeline not found: %w", badger.ErrKeyNotFound)
 )
 
 type PipelineModel struct {
@@ -18,23 +29,28 @@ func NewPipelineModel(db *badger.DB) *PipelineModel {
 	}
 }
 
+// CreatePipeline stores a new pipeline. It fails with ErrPipelineExists when
+// the name is already taken, so a create can never overwrite an existing
+// definition (or silently replace a malformed legacy one).
 func (pm *PipelineModel) CreatePipeline(pipeline *types.Pipeline) error {
-	err := pm.DB.Update(func(txn *badger.Txn) error {
-		pipelineKey := fmt.Sprintf("/pipelines/%s", pipeline.Name)
+	pipelineKey := fmt.Sprintf("/pipelines/%s", pipeline.Name)
+
+	return pm.DB.Update(func(txn *badger.Txn) error {
+		_, err := txn.Get([]byte(pipelineKey))
+		if err == nil {
+			return ErrPipelineExists
+		}
+		if !errors.Is(err, badger.ErrKeyNotFound) {
+			return err
+		}
+
 		pipelineValue, err := json.Marshal(pipeline)
 		if err != nil {
 			return err
 		}
 
-		err = txn.Set([]byte(pipelineKey), pipelineValue)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return txn.Set([]byte(pipelineKey), pipelineValue)
 	})
-
-	return err
 }
 
 func (pm *PipelineModel) GetPipeline(name string) (*types.Pipeline, error) {
@@ -44,6 +60,9 @@ func (pm *PipelineModel) GetPipeline(name string) (*types.Pipeline, error) {
 		pipelineKey := fmt.Sprintf("/pipelines/%s", name)
 		item, err := txn.Get([]byte(pipelineKey))
 		if err != nil {
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				return ErrPipelineNotFound
+			}
 			return err
 		}
 
@@ -64,37 +83,47 @@ func (pm *PipelineModel) GetPipeline(name string) (*types.Pipeline, error) {
 	return pipeline, nil
 }
 
+// UpdatePipeline replaces an existing pipeline. It fails with
+// ErrPipelineNotFound rather than creating a missing one, so a PUT cannot
+// implicitly create a definition that skipped validation.
 func (pm *PipelineModel) UpdatePipeline(pipeline *types.Pipeline) error {
-	err := pm.DB.Update(func(txn *badger.Txn) error {
-		pipelineKey := fmt.Sprintf("/pipelines/%s", pipeline.Name)
+	pipelineKey := fmt.Sprintf("/pipelines/%s", pipeline.Name)
+
+	return pm.DB.Update(func(txn *badger.Txn) error {
+		_, err := txn.Get([]byte(pipelineKey))
+		if err != nil {
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				return ErrPipelineNotFound
+			}
+			return err
+		}
+
 		pipelineValue, err := json.Marshal(pipeline)
 		if err != nil {
 			return err
 		}
 
-		err = txn.Set([]byte(pipelineKey), pipelineValue)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return txn.Set([]byte(pipelineKey), pipelineValue)
 	})
-
-	return err
 }
 
+// DeletePipeline removes a pipeline. It fails with ErrPipelineNotFound when
+// the pipeline does not exist, so callers can distinguish a missing pipeline
+// from a storage failure.
 func (pm *PipelineModel) DeletePipeline(name string) error {
-	err := pm.DB.Update(func(txn *badger.Txn) error {
-		pipelineKey := fmt.Sprintf("/pipelines/%s", name)
-		err := txn.Delete([]byte(pipelineKey))
+	pipelineKey := fmt.Sprintf("/pipelines/%s", name)
+
+	return pm.DB.Update(func(txn *badger.Txn) error {
+		_, err := txn.Get([]byte(pipelineKey))
 		if err != nil {
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				return ErrPipelineNotFound
+			}
 			return err
 		}
 
-		return nil
+		return txn.Delete([]byte(pipelineKey))
 	})
-
-	return err
 }
 
 func (pm *PipelineModel) ListPipelines() ([]*types.Pipeline, error) {

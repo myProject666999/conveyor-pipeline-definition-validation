@@ -17,5 +17,8 @@ func PipelineRoutes(app *fiber.App, natsContext *utils.NatsContext, db *badger.D
 	pipelineHandler := handlers.NewPipelineHandler(natsContext.NatsCon, db)
 	// Define routes
 	pipelinePrefix.Post("/", pipelineHandler.CreatePipeline)
+	pipelinePrefix.Get("/:name", pipelineHandler.GetPipeline)
+	pipelinePrefix.Put("/:name", pipelineHandler.UpdatePipeline)
+	pipelinePrefix.Delete("/:name", pipelineHandler.DeletePipeline)
 
 }

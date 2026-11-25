@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dgraph-io/badger/v4"
@@ -62,8 +63,10 @@ func (m *ResourceDefinitionModel) FindOne(name string) (*types.ResourceDefinitio
 
 		item, err := txn.Get([]byte(key))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
-				return fmt.Errorf("resource definition with name %s not found", name)
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				// Wrap the sentinel so handlers can map a missing definition
+				// to 404 while keeping a descriptive message.
+				return fmt.Errorf("resource definition with name %s not found: %w", name, badger.ErrKeyNotFound)
 			}
 			return err
 		}

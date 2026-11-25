@@ -340,7 +340,21 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad request - Invalid payload",
+                        "description": "Bad request - Invalid payload or definition",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Resource definition not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Pipeline with this name already exists",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -402,7 +416,7 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "description": "Update an existing pipeline with new configuration",
+                "description": "Update an existing pipeline with new configuration. The resource type is immutable while resources reference the pipeline.",
                 "consumes": [
                     "application/json"
                 ],
@@ -439,14 +453,21 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad request - Invalid payload",
+                        "description": "Bad request - Invalid payload or definition",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "404": {
-                        "description": "Not found - Pipeline does not exist",
+                        "description": "Not found - Pipeline or resource definition does not exist",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Resource type cannot change while resources reference the pipeline",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -488,6 +509,13 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not found - Pipeline does not exist",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Resources still reference this pipeline",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -988,8 +1016,15 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
+                    "202": {
+                        "description": "Pipeline deletion accepted; poll GET until 404",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
                     "204": {
-                        "description": "Resource deleted successfully",
+                        "description": "Direct resource deleted",
                         "schema": {
                             "type": "string"
                         }
@@ -999,6 +1034,12 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Resource already absent",
+                        "schema": {
+                            "type": "string"
                         }
                     },
                     "500": {
@@ -1160,10 +1201,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "metadata": {
+                    "description": "Metadata can include any additional information about the resource, such as labels, annotations, or other custom fields.",
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": true
                 },
                 "name": {
                     "type": "string"
@@ -1214,7 +1254,7 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "0.5.0",
+	Version:          "0.6.5",
 	Host:             "localhost:8080",
 	BasePath:         "/",
 	Schemes:          []string{"http", "https"},
